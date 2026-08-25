@@ -1,0 +1,22 @@
+{
+  "short_name": "HandyHub",
+  "name": "HandyHub - On-Demand Handyman Marketplace",
+  "description": "Connect instantly with local verified electricians, plumbers, locksmiths, and trade pros.",
+  "icons": [
+    {
+      "src": "/pwa-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/pwa-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#F8FAFC",
+  "theme_color": "#F59E0B",
+  "display": "standalone",
+  "orientation": "portrait"
+}
