@@ -62,12 +62,43 @@ export const AuthModal = ({ onClose, onAuthenticate, existingUsers = [] }) => {
         return;
       }
 
-      // Generate SMS OTP
-      const code = generateRandom6Digits();
-      setGeneratedSmsOtp(code);
-      setStep('SMS_OTP');
+      // Pre-set their registered email in state so the UI displays it correctly
+      if (match.email) {
+        setEmail(match.email);
+      }
+
+      const emailCode = generateRandom6Digits();
+      setGeneratedEmailOtp(emailCode);
+      setStep('EMAIL_OTP');
       setResendTimer(60);
       setOtpAttempts(0);
+
+      // Send OTP to user's registered email
+      (async () => {
+        const hosts = getSyncServerHosts();
+        const targetEmail = match.email || 'user@example.com';
+        console.log(`📩 Dispatching OTP code ${emailCode} to user email ${targetEmail}...`);
+        for (const host of hosts) {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 1500);
+          try {
+            const res = await fetch(`${host}/api/send-otp`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email: targetEmail, otp: emailCode }),
+              signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+            if (res.ok) {
+              console.log(`📩 OTP email sent successfully via ${host}`);
+              break;
+            }
+          } catch (fetchErr) {
+            clearTimeout(timeoutId);
+            console.warn(`Failed to dispatch OTP email via ${host}:`, fetchErr.message);
+          }
+        }
+      })();
     } else {
       // Register mode checks
       if (!name.trim()) {
@@ -87,48 +118,6 @@ export const AuthModal = ({ onClose, onAuthenticate, existingUsers = [] }) => {
         return;
       }
 
-      // Step 1: Send SMS OTP
-      const smsCode = generateRandom6Digits();
-      setGeneratedSmsOtp(smsCode);
-      setStep('SMS_OTP');
-      setResendTimer(60);
-      setOtpAttempts(0);
-    }
-  };
-
-  const handleSmsOtpVerify = async (e) => {
-    e.preventDefault();
-    setErrorMessage('');
-
-    if (otpAttempts >= 3) {
-      setErrorMessage('Too many failed OTP attempts. Please request a new code.');
-      return;
-    }
-
-    if (smsOtpCode !== generatedSmsOtp) {
-      const attempts = otpAttempts + 1;
-      setOtpAttempts(attempts);
-      if (attempts >= 3) {
-        setErrorMessage('Too many failed OTP attempts. Session locked. Please request a new code.');
-      } else {
-        setErrorMessage(`Invalid 6-digit SMS OTP code. ${3 - attempts} attempt(s) remaining.`);
-      }
-      return;
-    }
-
-    if (tab === 'login') {
-      // Login complete!
-      const latestUsers = await fetchLatestUsers();
-      const user = latestUsers.find(u => formatPhoneNumber(u.phone) === formatPhoneNumber(phone)) || {
-        user_id: `usr-${Date.now()}`,
-        name: 'Logged User',
-        phone: formatPhoneNumber(phone),
-        email: 'user@example.com'
-      };
-      onAuthenticate(user, role);
-      onClose();
-    } else {
-      // Register mode -> Move to Step 2: Email Code Verification
       const emailCode = generateRandom6Digits();
       setGeneratedEmailOtp(emailCode);
       setStep('EMAIL_OTP');
@@ -138,7 +127,6 @@ export const AuthModal = ({ onClose, onAuthenticate, existingUsers = [] }) => {
       // Send OTP to the registering user's email address
       (async () => {
         const hosts = getSyncServerHosts();
-        
         console.log(`📩 Dispatching OTP code ${emailCode} to user email ${email}...`);
         for (const host of hosts) {
           const controller = new AbortController();
@@ -164,7 +152,7 @@ export const AuthModal = ({ onClose, onAuthenticate, existingUsers = [] }) => {
     }
   };
 
-  const handleEmailOtpVerify = (e) => {
+  const handleEmailOtpVerify = async (e) => {
     e.preventDefault();
     setErrorMessage('');
 
@@ -184,21 +172,33 @@ export const AuthModal = ({ onClose, onAuthenticate, existingUsers = [] }) => {
       return;
     }
 
-    // Register complete!
-    const isProvider = role !== 'customer';
-    const newUser = {
-      user_id: `usr-${Date.now()}`,
-      name: sanitizeText(name),
-      phone: formatPhoneNumber(phone),
-      email: sanitizeText(email),
-      password_hash: hashPassword(password, email),
-      role: role,
-      city_id: selectedCityId ? parseInt(selectedCityId, 10) : null,
-      preferred_region_id: isProvider && preferredWorkRegionId ? parseInt(preferredWorkRegionId, 10) : null
-    };
+    if (tab === 'login') {
+      const latestUsers = await fetchLatestUsers();
+      const user = latestUsers.find(u => formatPhoneNumber(u.phone) === formatPhoneNumber(phone)) || {
+        user_id: `usr-${Date.now()}`,
+        name: 'Logged User',
+        phone: formatPhoneNumber(phone),
+        email: 'user@example.com'
+      };
+      onAuthenticate(user, role);
+      onClose();
+    } else {
+      // Register complete!
+      const isProvider = role !== 'customer';
+      const newUser = {
+        user_id: `usr-${Date.now()}`,
+        name: sanitizeText(name),
+        phone: formatPhoneNumber(phone),
+        email: sanitizeText(email),
+        password_hash: hashPassword(password, email),
+        role: role,
+        city_id: selectedCityId ? parseInt(selectedCityId, 10) : null,
+        preferred_region_id: isProvider && preferredWorkRegionId ? parseInt(preferredWorkRegionId, 10) : null
+      };
 
-    onAuthenticate(newUser, role, isProvider);
-    onClose();
+      onAuthenticate(newUser, role, isProvider);
+      onClose();
+    }
   };
 
   return (
@@ -739,7 +739,7 @@ export const AuthModal = ({ onClose, onAuthenticate, existingUsers = [] }) => {
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button
                   type="button"
-                  onClick={() => setStep('SMS_OTP')}
+                  onClick={() => setStep('CREDENTIALS')}
                   style={{
                     flex: 1,
                     padding: '10px',
@@ -765,7 +765,7 @@ export const AuthModal = ({ onClose, onAuthenticate, existingUsers = [] }) => {
                     fontSize: '0.88rem'
                   }}
                 >
-                  Complete Registration 🚀
+                  {tab === 'login' ? 'Confirm Sign In 🔑' : 'Complete Registration 🚀'}
                 </button>
               </div>
             </form>

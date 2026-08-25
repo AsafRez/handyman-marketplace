@@ -9,15 +9,6 @@ const clients = new Set();
 // Shared Database State in memory across all emulators
 let sharedJobs = [];
 
-const ROLES = [
-  { role_id: 'electrician', role_name: 'Electrician' },
-  { role_id: 'plumber', role_name: 'Plumber' },
-  { role_id: 'locksmith', role_name: 'Locksmith' },
-  { role_id: 'hvac', role_name: 'HVAC & AC Repair' },
-  { role_id: 'carpenter', role_name: 'Carpenter' },
-  { role_id: 'painter', role_name: 'Painter' }
-];
-
 const rateLimits = new Map(); // ip -> { count, startTime }
 const RATE_LIMIT_WINDOW_MS = 10000; // 10 seconds
 const RATE_LIMIT_MAX_REQUESTS = 100; // max 100 requests per 10 seconds
@@ -62,13 +53,6 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && req.url === '/api/jobs') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(sharedJobs));
-    return;
-  }
-
-  // GET /api/roles - Return available handyman roles
-  if (req.method === 'GET' && req.url === '/api/roles') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(ROLES));
     return;
   }
 
