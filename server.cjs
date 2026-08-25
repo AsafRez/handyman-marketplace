@@ -156,7 +156,7 @@ const server = http.createServer((req, res) => {
       try {
         const payload = JSON.parse(body);
         const { adminEmail, provider } = payload;
-        
+
         if (!adminEmail || !provider) {
           res.writeHead(400, { ...corsHeaders, 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Missing adminEmail or provider details' }));
@@ -296,7 +296,7 @@ const server = http.createServer((req, res) => {
       try {
         const payload = JSON.parse(body);
         const { email, otp } = payload;
-        
+
         if (!email || !otp) {
           res.writeHead(400, { ...corsHeaders, 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Missing email or otp' }));
@@ -388,7 +388,7 @@ function broadcastSSE(eventType, data) {
   sseClients.forEach(client => {
     try {
       client.write(`data: ${payload}\n\n`);
-    } catch (e) {}
+    } catch (e) { }
   });
 }
 
