@@ -52,24 +52,23 @@ export const StartupLoginPage = ({ existingUsers = [], onAuthenticate }) => {
     e.preventDefault();
     setErrorMessage('');
 
-    const cleanPhone = formatPhoneNumber(phone);
-    if (!cleanPhone || cleanPhone.length < 8) {
-      setErrorMessage('Please enter a valid phone number.');
-      return;
-    }
-
     const latestUsers = await fetchLatestUsers();
 
     if (tab === 'login') {
-      const match = latestUsers.find(u => formatPhoneNumber(u.phone) === cleanPhone && u.password_hash === hashPassword(password, u.email));
-      if (!match) {
-        setErrorMessage('Invalid phone number or password. Try demo quick sign-in below.');
+      if (!email.includes('@')) {
+        setErrorMessage('Please enter a valid email address.');
         return;
       }
 
-      // Pre-set their registered email in state so the UI displays it correctly
-      if (match.email) {
-        setEmail(match.email);
+      const match = latestUsers.find(u => u.email && u.email.toLowerCase() === email.trim().toLowerCase() && u.password_hash === hashPassword(password, u.email));
+      if (!match) {
+        setErrorMessage('Invalid email address or password. Try demo quick sign-in below.');
+        return;
+      }
+
+      // Pre-set their registered phone in state so the user context is initialized correctly
+      if (match.phone) {
+        setPhone(match.phone);
       }
 
       const emailCode = generateRandom6Digits();
@@ -81,7 +80,7 @@ export const StartupLoginPage = ({ existingUsers = [], onAuthenticate }) => {
       // Send OTP to user's registered email
       (async () => {
         const hosts = getSyncServerHosts();
-        const targetEmail = match.email || 'user@example.com';
+        const targetEmail = match.email;
         console.log(`📩 Dispatching OTP code ${emailCode} to user email ${targetEmail}...`);
         for (const host of hosts) {
           const controller = new AbortController();
@@ -105,6 +104,11 @@ export const StartupLoginPage = ({ existingUsers = [], onAuthenticate }) => {
         }
       })();
     } else {
+      const cleanPhone = formatPhoneNumber(phone);
+      if (!cleanPhone || cleanPhone.length < 8) {
+        setErrorMessage('Please enter a valid phone number.');
+        return;
+      }
       if (!name.trim()) {
         setErrorMessage('Please enter your full name.');
         return;
@@ -399,41 +403,41 @@ export const StartupLoginPage = ({ existingUsers = [], onAuthenticate }) => {
                 </div>
               )}
 
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '4px' }}>
-                  Phone Number:
-                </label>
-                <div style={{ display: 'flex', alignItems: 'center', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 'var(--radius-sm)', padding: '8px 12px' }}>
-                  <Phone size={15} style={{ color: 'var(--primary-amber)', marginRight: '6px' }} />
-                  <input
-                    type="text"
-                    required
-                    value={phone}
-                    onChange={(e) => setPhone(formatPhoneNumber(e.target.value))}
-                    placeholder="+1 (555) 234-8901"
-                    style={{ border: 'none', background: 'transparent', width: '100%', fontSize: '0.85rem', fontWeight: 600 }}
-                  />
-                </div>
-              </div>
-
               {tab === 'register' && (
                 <div>
                   <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '4px' }}>
-                    Email Address:
+                    Phone Number:
                   </label>
                   <div style={{ display: 'flex', alignItems: 'center', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 'var(--radius-sm)', padding: '8px 12px' }}>
-                    <Mail size={15} style={{ color: 'var(--accent-teal)', marginRight: '6px' }} />
+                    <Phone size={15} style={{ color: 'var(--primary-amber)', marginRight: '6px' }} />
                     <input
-                      type="email"
+                      type="text"
                       required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="david.miller@example.com"
+                      value={phone}
+                      onChange={(e) => setPhone(formatPhoneNumber(e.target.value))}
+                      placeholder="+1 (555) 234-8901"
                       style={{ border: 'none', background: 'transparent', width: '100%', fontSize: '0.85rem', fontWeight: 600 }}
                     />
                   </div>
                 </div>
               )}
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '4px' }}>
+                  Email Address:
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 'var(--radius-sm)', padding: '8px 12px' }}>
+                  <Mail size={15} style={{ color: 'var(--accent-teal)', marginRight: '6px' }} />
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="david.miller@example.com"
+                    style={{ border: 'none', background: 'transparent', width: '100%', fontSize: '0.85rem', fontWeight: 600 }}
+                  />
+                </div>
+              </div>
 
               <div>
                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '4px' }}>

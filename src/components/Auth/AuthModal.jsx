@@ -46,25 +46,23 @@ export const AuthModal = ({ onClose, onAuthenticate, existingUsers = [] }) => {
     e.preventDefault();
     setErrorMessage('');
 
-    const cleanPhone = formatPhoneNumber(phone);
-    if (!cleanPhone || cleanPhone.length < 8) {
-      setErrorMessage('Please enter a valid phone number.');
-      return;
-    }
-
     const latestUsers = await fetchLatestUsers();
 
     if (tab === 'login') {
-      // Validate against DB users
-      const match = latestUsers.find(u => formatPhoneNumber(u.phone) === cleanPhone && u.password_hash === hashPassword(password, u.email));
-      if (!match) {
-        setErrorMessage('Invalid phone number or password. Check demo credentials.');
+      if (!email.includes('@')) {
+        setErrorMessage('Please enter a valid email address.');
         return;
       }
 
-      // Pre-set their registered email in state so the UI displays it correctly
-      if (match.email) {
-        setEmail(match.email);
+      const match = latestUsers.find(u => u.email && u.email.toLowerCase() === email.trim().toLowerCase() && u.password_hash === hashPassword(password, u.email));
+      if (!match) {
+        setErrorMessage('Invalid email address or password. Check demo credentials.');
+        return;
+      }
+
+      // Pre-set their registered phone in state so the user context is initialized correctly
+      if (match.phone) {
+        setPhone(match.phone);
       }
 
       const emailCode = generateRandom6Digits();
@@ -76,7 +74,7 @@ export const AuthModal = ({ onClose, onAuthenticate, existingUsers = [] }) => {
       // Send OTP to user's registered email
       (async () => {
         const hosts = getSyncServerHosts();
-        const targetEmail = match.email || 'user@example.com';
+        const targetEmail = match.email;
         console.log(`📩 Dispatching OTP code ${emailCode} to user email ${targetEmail}...`);
         for (const host of hosts) {
           const controller = new AbortController();
@@ -100,6 +98,11 @@ export const AuthModal = ({ onClose, onAuthenticate, existingUsers = [] }) => {
         }
       })();
     } else {
+      const cleanPhone = formatPhoneNumber(phone);
+      if (!cleanPhone || cleanPhone.length < 8) {
+        setErrorMessage('Please enter a valid phone number.');
+        return;
+      }
       // Register mode checks
       if (!name.trim()) {
         setErrorMessage('Please enter your full name.');
@@ -415,41 +418,41 @@ export const AuthModal = ({ onClose, onAuthenticate, existingUsers = [] }) => {
                   </div>
                 )}
 
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '4px' }}>
-                    Phone Number:
-                  </label>
-                  <div style={{ display: 'flex', alignItems: 'center', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 'var(--radius-sm)', padding: '8px 12px' }}>
-                    <Phone size={16} style={{ color: 'var(--primary-amber)', marginRight: '6px' }} />
-                    <input
-                      type="text"
-                      required
-                      value={phone}
-                      onChange={(e) => setPhone(formatPhoneNumber(e.target.value))}
-                      placeholder="+1 (555) 912-3456"
-                      style={{ border: 'none', background: 'transparent', width: '100%', fontSize: '0.85rem', fontWeight: 600 }}
-                    />
-                  </div>
-                </div>
-
                 {tab === 'register' && (
                   <div>
                     <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '4px' }}>
-                      Email Address:
+                      Phone Number:
                     </label>
                     <div style={{ display: 'flex', alignItems: 'center', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 'var(--radius-sm)', padding: '8px 12px' }}>
-                      <Mail size={16} style={{ color: 'var(--accent-teal)', marginRight: '6px' }} />
+                      <Phone size={16} style={{ color: 'var(--primary-amber)', marginRight: '6px' }} />
                       <input
-                        type="email"
+                        type="text"
                         required
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="david.miller@example.com"
+                        value={phone}
+                        onChange={(e) => setPhone(formatPhoneNumber(e.target.value))}
+                        placeholder="+1 (555) 912-3456"
                         style={{ border: 'none', background: 'transparent', width: '100%', fontSize: '0.85rem', fontWeight: 600 }}
                       />
                     </div>
                   </div>
                 )}
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '4px' }}>
+                    Email Address:
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 'var(--radius-sm)', padding: '8px 12px' }}>
+                    <Mail size={16} style={{ color: 'var(--accent-teal)', marginRight: '6px' }} />
+                    <input
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="david.miller@example.com"
+                      style={{ border: 'none', background: 'transparent', width: '100%', fontSize: '0.85rem', fontWeight: 600 }}
+                    />
+                  </div>
+                </div>
 
                 <div>
                   <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '4px' }}>
