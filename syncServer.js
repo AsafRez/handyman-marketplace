@@ -1,7 +1,32 @@
 // HandyHub Cross-Emulator Real-Time SSE & State Sync Server
 import http from 'http';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import 'dotenv/config';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const DIST_DIR = path.join(__dirname, 'dist');
+
+const MIME_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.mjs': 'application/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.apk': 'application/vnd.android.package-archive',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.map': 'application/json'
+};
 
 const PORT = process.env.PORT || 3001;
 const clients = new Set();
@@ -46,6 +71,13 @@ const server = http.createServer((req, res) => {
   if (!checkRateLimit(ip)) {
     res.writeHead(429, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Too many requests. Please slow down.' }));
+    return;
+  }
+
+  // 0. GET /api/health - Health check endpoint for Render
+  if (req.method === 'GET' && (req.url === '/api/health' || req.url === '/healthz' || req.url === '/health')) {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'ok', time: new Date().toISOString(), clients: clients.size, jobs: sharedJobs.length }));
     return;
   }
 
@@ -338,8 +370,99 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  res.writeHead(404);
-  res.end('Not Found');
+  // 6. Serve APK if requested
+  if (req.method === 'GET' && (req.url === '/HandyHub.apk' || req.url === '/apk' || req.url === '/HandyHub-Release.apk')) {
+    const filename = req.url === '/HandyHub-Release.apk' ? 'HandyHub-Release.apk' : 'HandyHub.apk';
+    const apkPath = [
+      path.join(__dirname, filename),
+      path.join(DIST_DIR, filename),
+      path.join(__dirname, 'public', filename)
+    ].find(p => fs.existsSync(p));
+
+    if (apkPath) {
+      res.writeHead(200, {
+        'Content-Type': 'application/vnd.android.package-archive',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Access-Control-Allow-Origin': '*'
+      });
+      fs.createReadStream(apkPath).pipe(res);
+      return;
+    }
+  }
+
+  // 7. Static Assets & Single Page App (SPA) Handling for Frontend
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    const urlPath = req.url.split('?')[0];
+    const safeSuffix = path.normalize(urlPath).replace(/^(\.\.[\/\\])+/, '');
+    const targetFile = path.join(DIST_DIR, safeSuffix);
+
+    // If file exists in dist, serve it
+    if (fs.existsSync(targetFile) && fs.statSync(targetFile).isFile()) {
+      const ext = path.extname(targetFile).toLowerCase();
+      const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+      res.writeHead(200, {
+        'Content-Type': contentType,
+        'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=31536000, immutable'
+      });
+      if (req.method === 'HEAD') {
+        res.end();
+      } else {
+        fs.createReadStream(targetFile).pipe(res);
+      }
+      return;
+    }
+
+    // SPA fallback: Return dist/index.html for client routes
+    const indexPath = path.join(DIST_DIR, 'index.html');
+    if (fs.existsSync(indexPath)) {
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-cache'
+      });
+      if (req.method === 'HEAD') {
+        res.end();
+      } else {
+        fs.createReadStream(indexPath).pipe(res);
+      }
+      return;
+    }
+
+    // Graceful fallback if dist is not yet built on Render
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(`<!DOCTYPE html>
+<html>
+<head>
+  <title>HandyHub Production Server</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 32px; max-width: 520px; width: 100%; text-align: center; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); }
+    h1 { color: #f59e0b; margin: 0 0 12px; font-size: 24px; }
+    p { color: #94a3b8; line-height: 1.6; margin: 0 0 20px; font-size: 14px; }
+    .status { display: inline-flex; align-items: center; gap: 8px; background: #064e3b; color: #34d399; padding: 6px 14px; border-radius: 9999px; font-size: 13px; font-weight: 600; margin-bottom: 20px; }
+    .status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #34d399; }
+    .endpoints { text-align: left; background: #0f172a; border-radius: 8px; padding: 14px; font-family: monospace; font-size: 13px; color: #38bdf8; }
+    .endpoints div { margin-bottom: 6px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="status">Backend Sync Server Online</div>
+    <h1>🛠️ HandyHub Service</h1>
+    <p>The backend synchronization and SSE real-time dispatcher are running properly. Build the web frontend (<code>npm run build</code>) to view the client app here.</p>
+    <div class="endpoints">
+      <div>🟢 GET /api/health</div>
+      <div>🟢 GET /api/jobs</div>
+      <div>🟢 GET /api/events (SSE)</div>
+    </div>
+  </div>
+</body>
+</html>`);
+    return;
+  }
+
+  res.writeHead(404, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ error: 'Endpoint Not Found' }));
 });
 
 server.listen(PORT, '0.0.0.0', () => {

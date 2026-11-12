@@ -7,6 +7,7 @@
     "start": "node syncServer.js",
     "dev": "vite",
     "build": "vite build",
+    "postinstall": "npm run build",
     "lint": "oxlint",
     "preview": "vite preview"
   },
@@ -19,19 +20,19 @@
     "@capacitor/geolocation": "^8.2.2",
     "@capacitor/ios": "^8.5.0",
     "@supabase/supabase-js": "^2.112.0",
+    "@vitejs/plugin-react": "^6.0.4",
     "canvas-confetti": "^1.9.4",
     "dotenv": "^17.4.2",
     "leaflet": "^1.9.4",
     "lucide-react": "^1.28.0",
     "nodemailer": "^9.0.5",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "vite": "^8.2.0"
   },
   "devDependencies": {
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.4",
-    "oxlint": "^1.75.0",
-    "vite": "^8.2.0"
+    "oxlint": "^1.75.0"
   }
 }
