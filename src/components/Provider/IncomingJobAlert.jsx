@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useMarketplace } from '../../context/MarketplaceContext';
 import { Bell, MapPin, DollarSign, Clock, Check, X, ShieldAlert, AlertCircle, Sparkles } from 'lucide-react';
 import { decodeHTML } from '../../utils/sanitizer';
+import { resolveCoordinates } from '../../db/database';
 
 export const IncomingJobAlert = ({ job, onClose }) => {
-  const { activeProvider, claimJob } = useMarketplace();
+  const { activeProvider, currentUser, cities, regions, claimJob, providerLiveCoords, calculateDistanceKm } = useMarketplace();
   const [timeLeft, setTimeLeft] = useState(30);
   const [claimResult, setClaimResult] = useState(null); // null | { success: true } | { success: false, claimedBy }
 
@@ -40,6 +41,18 @@ export const IncomingJobAlert = ({ job, onClose }) => {
       }, 2000);
     }
   };
+
+  // Calculate accurate live distance in KM
+  const providerCoords = providerLiveCoords || resolveCoordinates(
+    {
+      city_id: currentUser?.city_id || activeProvider?.city_id,
+      region_id: activeProvider?.preferred_region_id || currentUser?.region_id || activeProvider?.region_id
+    },
+    cities,
+    regions
+  );
+  const jobCoords = resolveCoordinates(job, cities, regions, providerCoords);
+  const distanceKm = calculateDistanceKm(providerCoords.lat, providerCoords.lng, jobCoords.lat, jobCoords.lng);
 
   return (
     <div style={{
@@ -172,7 +185,7 @@ export const IncomingJobAlert = ({ job, onClose }) => {
               </div>
               <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
                 <MapPin size={16} style={{ color: 'var(--primary-amber)' }} />
-                1.4 miles away
+                {distanceKm} km away
               </div>
             </div>
           </div>

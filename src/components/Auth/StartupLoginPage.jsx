@@ -84,7 +84,7 @@ export const StartupLoginPage = ({ existingUsers = [], onAuthenticate }) => {
         console.log(`📩 Dispatching OTP code ${emailCode} to user email ${targetEmail}...`);
         for (const host of hosts) {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 1500);
+          const timeoutId = setTimeout(() => controller.abort(), 10000);
           try {
             const res = await fetch(`${host}/api/send-otp`, {
               method: 'POST',
@@ -143,7 +143,7 @@ export const StartupLoginPage = ({ existingUsers = [], onAuthenticate }) => {
         console.log(`📩 Dispatching OTP code ${emailCode} to user email ${email}...`);
         for (const host of hosts) {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 1500);
+          const timeoutId = setTimeout(() => controller.abort(), 10000);
           try {
             const res = await fetch(`${host}/api/send-otp`, {
               method: 'POST',
@@ -592,7 +592,69 @@ export const StartupLoginPage = ({ existingUsers = [], onAuthenticate }) => {
                 <span>{tab === 'login' ? 'Sign In with Phone SMS OTP' : 'Create & Verify Account'}</span>
                 <ArrowRight size={16} />
               </button>
-            </form>            
+            </form>
+
+            {/* Quick Demo Sign In Buttons */}
+            <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid #E2E8F0', textAlign: 'center' }}>
+              <div style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--text-muted)', marginBottom: '8px', letterSpacing: '0.05em' }}>
+                ⚡ ONE-CLICK DEMO ACCESS
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const demoPro = {
+                      user_id: 'a0000000-0000-0000-0000-000000000002',
+                      name: 'Marcus Vance',
+                      phone: '+1 (555) 234-5678',
+                      email: 'marcus.vance@example.com',
+                      city_id: 8, // Rehovot
+                      preferred_region_id: 3
+                    };
+                    onAuthenticate(demoPro, 'electrician', true);
+                  }}
+                  style={{
+                    padding: '8px 10px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: '#EFF6FF',
+                    border: '1px solid #BFDBFE',
+                    color: '#1D4ED8',
+                    fontWeight: 700,
+                    fontSize: '0.75rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  ⚡ Pro Marcus (Rehovot)
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const demoCust = {
+                      user_id: 'a0000000-0000-0000-0000-000000000001',
+                      name: 'David Miller',
+                      phone: '+1 (555) 123-4567',
+                      email: 'david.miller@example.com',
+                      city_id: 8, // Rehovot
+                      location: 'Rehovot'
+                    };
+                    onAuthenticate(demoCust, 'customer', false);
+                  }}
+                  style={{
+                    padding: '8px 10px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: '#FEF3C7',
+                    border: '1px solid #FDE68A',
+                    color: '#B45309',
+                    fontWeight: 700,
+                    fontSize: '0.75rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  ⚡ Customer David
+                </button>
+              </div>
+            </div>
           </div>
         )}
 

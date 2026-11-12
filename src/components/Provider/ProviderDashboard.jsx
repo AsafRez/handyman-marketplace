@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useMarketplace } from '../../context/MarketplaceContext';
-import { ShieldCheck, Zap, Phone, MapPin, DollarSign, Clock, CheckCircle2, User, Play, AlertCircle, Sparkles, Filter, Lock, AlertTriangle } from 'lucide-react';
+import { ShieldCheck, Zap, Phone, MapPin, DollarSign, Clock, CheckCircle2, User, Play, AlertCircle, Sparkles, Filter, Lock, AlertTriangle, Compass } from 'lucide-react';
 import { IncomingJobAlert } from './IncomingJobAlert';
 import { ProviderCancelModal } from './ProviderCancelModal';
+import { ProviderMiniMap } from './ProviderMiniMap';
+import { NavigationModal } from '../Navigation/NavigationModal';
 import { subscribeToEvents } from '../../utils/broadcast';
 import { decodeHTML } from '../../utils/sanitizer';
+import { resolveCoordinates } from '../../db/database';
 
 export const ProviderDashboard = () => {
   const {
@@ -18,18 +21,24 @@ export const ProviderDashboard = () => {
     providerCancelJob,
     createJobRequest,
     regions,
-    updateUserProfile
+    cities,
+    providerLiveCoords,
+    aiDetectedLocation,
+    autoSyncRegionWithAi,
+    updateUserProfile,
+    updateProviderAvailability
   } = useMarketplace();
 
   const [activeAlertJob, setActiveAlertJob] = useState(null);
   const [cancellingJob, setCancellingJob] = useState(null);
-  const [isOnline, setIsOnline] = useState(true);
+  const [navTarget, setNavTarget] = useState(null);
   const [tradeFilterMode, setTradeFilterMode] = useState('MY_TRADE');
-  const [regionFilterMode, setRegionFilterMode] = useState('ALL_REGIONS'); // 'ALL_REGIONS' | 'PREFERRED_REGION'
+  const [regionFilterMode, setRegionFilterMode] = useState('AI_AUTO'); // 'AI_AUTO' | 'PREFERRED_REGION' | 'ALL_REGIONS'
   const [dismissedJobIds, setDismissedJobIds] = useState(new Set());
 
   // Filter open jobs list for feed (excluding cancelled or claimed)
   const openJobs = jobs.filter(j => {
+    if (activeProvider?.available === false) return false;
     const jobStatus = (j.status || j.rawStatus || '').toUpperCase();
     if (jobStatus !== 'OPEN') return false;
     if (dismissedJobIds.has(j.id)) return false;
@@ -45,7 +54,14 @@ export const ProviderDashboard = () => {
     }
 
     // Region filter
-    if (regionFilterMode === 'PREFERRED_REGION') {
+    if (regionFilterMode === 'AI_AUTO') {
+      const detectedRegionId = aiDetectedLocation?.regionId;
+      if (detectedRegionId) {
+        if (!j.customerRegion || j.customerRegion.id !== detectedRegionId) {
+          return false;
+        }
+      }
+    } else if (regionFilterMode === 'PREFERRED_REGION') {
       const preferredRegionId = activeProvider?.preferred_region_id;
       if (preferredRegionId) {
         if (!j.customerRegion || j.customerRegion.id !== preferredRegionId) {
@@ -88,6 +104,11 @@ export const ProviderDashboard = () => {
 
   // Auto-trigger alert popup modal when a new matching open job appears
   useEffect(() => {
+    if (activeProvider?.available === false) {
+      setActiveAlertJob(null);
+      return;
+    }
+
     const isBusy = myClaimedJobs.some(j => {
       const statusUpper = (j.status || '').toUpperCase();
       return statusUpper === 'CLAIMED';
@@ -113,7 +134,7 @@ export const ProviderDashboard = () => {
         });
       }
     }
-  }, [jobs, dismissedJobIds, activeAlertJob, myClaimedJobs, activeProvider?.preferred_region_id]);
+  }, [jobs, dismissedJobIds, activeAlertJob, myClaimedJobs, activeProvider?.preferred_region_id, activeProvider?.available]);
 
   // Auto-dismiss alert popup if the job is no longer open (e.g., cancelled or claimed by another pro)
   useEffect(() => {
@@ -126,11 +147,21 @@ export const ProviderDashboard = () => {
   }, [openJobs, activeAlertJob]);
 
   const handleSimulateTestJob = () => {
+    const providerCity = cities?.find(c => c.id === activeProvider?.city_id) ||
+                         cities?.find(c => c.region_id === activeProvider?.preferred_region_id) ||
+                         cities?.[0];
+    const cityDisplayName = providerCity?.name || 'Tel Aviv-Yafo / תל אביב-יפו';
+    const streetSamples = ['14 Herzl Street', '28 Ben Yehuda Blvd', '52 Weizmann Street', '8 Sokolov Street', '36 Bialik Street', '19 HaBanim Street'];
+    const randomStreet = streetSamples[Math.floor(Math.random() * streetSamples.length)];
+    const jobLocation = `${randomStreet}, ${cityDisplayName}`;
+
     const testJob = createJobRequest({
       category: activeProvider.trade,
       problem: `Emergency diagnostic request for ${activeProvider.trade.toUpperCase()} - Urgent response needed`,
       phone: '+1 (555) 912-3456',
-      location: '405 Pine Street, Building B',
+      location: jobLocation,
+      city_id: providerCity?.id,
+      region_id: providerCity?.region_id,
       urgency: 'URGENT',
       estimatedPayout: '$180 - $240'
     });
@@ -161,6 +192,7 @@ export const ProviderDashboard = () => {
           onClose={() => setCancellingJob(null)}
           onConfirmCancel={(jobId, reason) => {
             providerCancelJob(jobId, reason);
+            setDismissedJobIds(prev => new Set([...prev, jobId]));
             setCancellingJob(null);
           }}
         />
@@ -255,13 +287,13 @@ export const ProviderDashboard = () => {
             </div>
 
             <button
-              onClick={() => setIsOnline(!isOnline)}
+              onClick={() => updateProviderAvailability(activeProvider.id, !activeProvider.available)}
               style={{
                 padding: '6px 12px',
                 borderRadius: 'var(--radius-full)',
-                background: isOnline ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.1)',
-                border: isOnline ? '1px solid #10B981' : '1px solid rgba(255, 255, 255, 0.2)',
-                color: isOnline ? '#10B981' : '#94A3B8',
+                background: activeProvider?.available ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.1)',
+                border: activeProvider?.available ? '1px solid #10B981' : '1px solid rgba(255, 255, 255, 0.2)',
+                color: activeProvider?.available ? '#10B981' : '#94A3B8',
                 fontSize: '0.78rem',
                 fontWeight: 800,
                 display: 'flex',
@@ -269,8 +301,8 @@ export const ProviderDashboard = () => {
                 gap: '4px'
               }}
             >
-              <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: isOnline ? '#10B981' : '#94A3B8' }} />
-              {isOnline ? 'ONLINE' : 'OFFLINE'}
+              <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: activeProvider?.available ? '#10B981' : '#94A3B8' }} />
+              {activeProvider?.available ? 'ONLINE' : 'OFFLINE'}
             </button>
 
             <button
@@ -296,6 +328,75 @@ export const ProviderDashboard = () => {
 
 
       </div>
+
+      {/* Provider Live Mini Map & Job Radar */}
+      <ProviderMiniMap activeAlertJob={activeAlertJob} visibleJobs={openJobs} />
+
+      {/* AI Smart Region Auto-Detection Banner */}
+      {aiDetectedLocation && (
+        <div style={{
+          background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(139, 92, 246, 0.08) 100%)',
+          border: '1px solid #BFDBFE',
+          borderRadius: '12px',
+          padding: '10px 14px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: '1rem',
+          flexWrap: 'wrap',
+          gap: '8px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{
+              width: '32px',
+              height: '32px',
+              borderRadius: '8px',
+              background: '#EEF2FF',
+              color: '#4F46E5',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              <Sparkles size={18} />
+            </div>
+            <div>
+              <div style={{ fontSize: '0.82rem', fontWeight: 800, color: '#1E40AF', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span>AI Location Auto-Detect:</span>
+                <span style={{ color: '#4F46E5' }}>{aiDetectedLocation.city?.name || 'Current GPS'}</span>
+              </div>
+              <div style={{ fontSize: '0.74rem', color: '#475569' }}>
+                {aiDetectedLocation.summary}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <button
+              onClick={async () => {
+                await autoSyncRegionWithAi();
+                setRegionFilterMode('AI_AUTO');
+              }}
+              style={{
+                background: 'linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)',
+                color: '#FFFFFF',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '6px 12px',
+                fontSize: '0.74rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+                boxShadow: '0 2px 8px rgba(37, 99, 235, 0.25)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+            >
+              <Sparkles size={12} />
+              <span>Set as My Region ⚡</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main Grid */}
       <div style={{
@@ -346,6 +447,21 @@ export const ProviderDashboard = () => {
               {/* Region Filters */}
               <div style={{ display: 'flex', background: '#E2E8F0', padding: '2px', borderRadius: 'var(--radius-sm)' }}>
                 <button
+                  onClick={() => setRegionFilterMode('AI_AUTO')}
+                  title="Auto-filter by your live GPS location"
+                  style={{
+                    padding: '3px 8px',
+                    borderRadius: 'var(--radius-sm)',
+                    fontSize: '0.7rem',
+                    fontWeight: 700,
+                    background: regionFilterMode === 'AI_AUTO' ? 'linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)' : 'transparent',
+                    color: regionFilterMode === 'AI_AUTO' ? '#FFFFFF' : 'var(--text-muted)'
+                  }}
+                >
+                  ✨ AI Auto
+                </button>
+
+                <button
                   onClick={() => setRegionFilterMode('PREFERRED_REGION')}
                   style={{
                     padding: '3px 8px',
@@ -356,7 +472,7 @@ export const ProviderDashboard = () => {
                     color: regionFilterMode === 'PREFERRED_REGION' ? 'var(--text-main)' : 'var(--text-muted)'
                   }}
                 >
-                  📍 Preferred Region
+                  📍 Preferred
                 </button>
 
                 <button
@@ -370,7 +486,7 @@ export const ProviderDashboard = () => {
                     color: regionFilterMode === 'ALL_REGIONS' ? 'var(--text-main)' : 'var(--text-muted)'
                   }}
                 >
-                  🌍 All Regions
+                  🌍 All
                 </button>
               </div>
             </div>
@@ -587,15 +703,47 @@ export const ProviderDashboard = () => {
                         </a>
 
                         <button
+                          onClick={() => {
+                            const destCoords = job.coords || resolveCoordinates(job, cities, regions, providerLiveCoords);
+                            setNavTarget({
+                              job: job,
+                              coords: destCoords,
+                              address: job.location || job.customerCity?.name
+                            });
+                          }}
+                          style={{
+                            flex: 1.2,
+                            padding: '8px',
+                            borderRadius: 'var(--radius-sm)',
+                            background: 'linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)',
+                            color: '#FFFFFF',
+                            fontSize: '0.8rem',
+                            fontWeight: 800,
+                            border: 'none',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '4px',
+                            boxShadow: '0 2px 6px rgba(37, 99, 235, 0.3)'
+                          }}
+                        >
+                          <Compass size={14} />
+                          <span>Navigate</span>
+                        </button>
+
+                        <button
                           onClick={() => completeJob(job.id)}
                           style={{
-                            flex: 1.5,
+                            flex: 1.4,
                             padding: '8px',
                             borderRadius: 'var(--radius-sm)',
                             background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
                             color: '#FFFFFF',
                             fontSize: '0.82rem',
                             fontWeight: 800,
+                            border: 'none',
+                            cursor: 'pointer',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
@@ -603,7 +751,7 @@ export const ProviderDashboard = () => {
                           }}
                         >
                           <CheckCircle2 size={15} />
-                          <span>MARK DONE 🏁</span>
+                          <span>DONE 🏁</span>
                         </button>
                       </div>
                     ) : (
@@ -629,6 +777,15 @@ export const ProviderDashboard = () => {
           )}
         </div>
       </div>
+
+      {/* External Navigation Selection Modal */}
+      <NavigationModal
+        isOpen={!!navTarget}
+        onClose={() => setNavTarget(null)}
+        targetJob={navTarget?.job}
+        coords={navTarget?.coords}
+        address={navTarget?.address}
+      />
     </div>
   );
 };

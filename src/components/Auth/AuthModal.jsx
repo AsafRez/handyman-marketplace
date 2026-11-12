@@ -78,7 +78,7 @@ export const AuthModal = ({ onClose, onAuthenticate, existingUsers = [] }) => {
         console.log(`📩 Dispatching OTP code ${emailCode} to user email ${targetEmail}...`);
         for (const host of hosts) {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 1500);
+          const timeoutId = setTimeout(() => controller.abort(), 10000);
           try {
             const res = await fetch(`${host}/api/send-otp`, {
               method: 'POST',
@@ -133,7 +133,7 @@ export const AuthModal = ({ onClose, onAuthenticate, existingUsers = [] }) => {
         console.log(`📩 Dispatching OTP code ${emailCode} to user email ${email}...`);
         for (const host of hosts) {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 1500);
+          const timeoutId = setTimeout(() => controller.abort(), 10000);
           try {
             const res = await fetch(`${host}/api/send-otp`, {
               method: 'POST',

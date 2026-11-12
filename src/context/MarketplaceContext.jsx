@@ -6,13 +6,25 @@ import {
   INITIAL_JOBS,
   joinJobDetails,
   INITIAL_REGIONS,
-  INITIAL_CITIES
+  INITIAL_CITIES,
+  resolveCoordinates
 } from '../db/database';
 import { subscribeToEvents, broadcastEvent, playSoundEffect, getSyncServerHosts } from '../utils/broadcast';
 import { sseManager } from '../utils/sseEngine';
 import { supabase } from '../db/supabaseClient';
 import confetti from 'canvas-confetti';
 import { ROLE_MAP, REVERSE_ROLE_MAP } from '../utils/roles';
+import {
+  getCurrentDeviceLocation,
+  watchDeviceLocation,
+  requestLocationPermissions,
+  calculateDistanceKm
+} from '../utils/locationService';
+import {
+  detectNearestCityAndRegion,
+  reverseGeocodeAddress,
+  forwardGeocodeAddress
+} from '../utils/geoAiEngine';
 
 const MarketplaceContext = createContext();
 
@@ -59,6 +71,7 @@ const generateUUID = () => {
 
 const shouldNotifyProviderForJob = (provider, job, cities) => {
   if (!provider) return false;
+  if (provider.available === false) return false;
   
   // Check trade match
   const cat = (job.category || job.role_id || '').toLowerCase();
@@ -91,8 +104,12 @@ const shouldNotifyProviderForJob = (provider, job, cities) => {
 };
 
 export const MarketplaceProvider = ({ children }) => {
-  const [viewMode, setViewMode] = useState('CUSTOMER'); // CUSTOMER | PROVIDER | DUAL_SPLIT
+  const [viewMode, setViewModeState] = useState('CUSTOMER'); // CUSTOMER | PROVIDER
   const [activeProviderId, setActiveProviderId] = useState('pro-marcus-electrician');
+
+  const setViewMode = (mode) => {
+    setViewModeState(mode);
+  };
   const [currentCustomerJobId, setCurrentCustomerJobId] = useState(null);
   const [soundEnabled, setSoundEnabled] = useState(true);
 
@@ -125,6 +142,54 @@ export const MarketplaceProvider = ({ children }) => {
       region
     };
   }, [currentUser, usersTable, citiesTable, regionsTable]);
+
+  // Real-time Device GPS location state
+  const [deviceLocation, setDeviceLocation] = useState(null);
+
+  // Initialize GPS on startup & watch for position changes
+  useEffect(() => {
+    let cleanupWatch = null;
+    let isMounted = true;
+
+    const initGps = async () => {
+      try {
+        await requestLocationPermissions();
+        const initialPos = await getCurrentDeviceLocation(8000);
+        if (isMounted && initialPos) {
+          console.log('📍 Initial device GPS acquired:', initialPos);
+          setDeviceLocation(initialPos);
+        }
+      } catch (err) {
+        console.warn('GPS initial acquisition failed:', err);
+      }
+
+      cleanupWatch = watchDeviceLocation((loc) => {
+        if (isMounted && loc) {
+          setDeviceLocation(loc);
+        }
+      });
+    };
+
+    initGps();
+
+    return () => {
+      isMounted = false;
+      if (cleanupWatch) cleanupWatch();
+    };
+  }, []);
+
+  const refreshDeviceLocation = async () => {
+    try {
+      const loc = await getCurrentDeviceLocation(10000);
+      if (loc) {
+        setDeviceLocation(loc);
+        return loc;
+      }
+    } catch (e) {
+      console.warn('refreshDeviceLocation error:', e);
+    }
+    return deviceLocation;
+  };
 
   // Derived joined models (All providers, mapped to UI format)
   const allProvidersUI = useMemo(() => {
@@ -171,9 +236,12 @@ export const MarketplaceProvider = ({ children }) => {
         phone: user?.phone || '',
         verified: p.verified,
         etaMinutes: p.eta_minutes || 10,
-        distanceMiles: p.distance_miles || '1.2 mi away',
-        preferred_region_id: p.preferred_region_id,
-        preferredRegionName: preferredRegion ? preferredRegion.name : 'All / None'
+        distanceMiles: p.distance_miles ? p.distance_miles.replace('mi away', 'km away').replace('miles away', 'km away') : '1.8 km away',
+        city_id: user?.city_id || p.city_id || null,
+        region_id: user?.region_id || p.region_id || null,
+        preferred_region_id: p.preferred_region_id || user?.preferred_work_region_id,
+        preferredRegionName: preferredRegion ? preferredRegion.name : 'All / None',
+        available: p.available !== undefined ? p.available : true
       };
     });
   }, [providersTable, usersTable, jobsTable, regionsTable]);
@@ -223,7 +291,7 @@ export const MarketplaceProvider = ({ children }) => {
       phone: currentUser?.phone || '',
       verified: false,
       etaMinutes: 10,
-      distanceMiles: '1.2 mi away',
+      distanceMiles: '1.8 km away',
       preferred_region_id: null,
       preferredRegionName: 'All / None'
     };
@@ -232,6 +300,47 @@ export const MarketplaceProvider = ({ children }) => {
   const joinedJobs = useMemo(() => {
     return jobsTable.map(j => joinJobDetails(j, usersTable, providersTable, rolesTable, regionsTable, citiesTable));
   }, [jobsTable, usersTable, providersTable, rolesTable, regionsTable, citiesTable]);
+
+  // Provider live coordinates (GPS hardware location takes #1 priority, falling back to registered city/region)
+  const providerLiveCoords = useMemo(() => {
+    if (deviceLocation?.lat && deviceLocation?.lng) {
+      return {
+        lat: Number(deviceLocation.lat),
+        lng: Number(deviceLocation.lng),
+        isGps: true,
+        accuracy: deviceLocation.accuracy,
+        source: deviceLocation.source
+      };
+    }
+    const fallbackTarget = {
+      city_id: currentUserEnriched?.city_id || activeProvider?.city_id,
+      region_id: activeProvider?.preferred_region_id || currentUserEnriched?.region_id || activeProvider?.region_id
+    };
+    const resolved = resolveCoordinates(fallbackTarget, citiesTable, regionsTable);
+    return {
+      lat: resolved.lat,
+      lng: resolved.lng,
+      isGps: false,
+      accuracy: null,
+      source: 'CITY_FALLBACK'
+    };
+  }, [deviceLocation, currentUserEnriched, activeProvider, citiesTable, regionsTable]);
+
+  // Smart AI detected city & region based on live GPS position
+  const aiDetectedLocation = useMemo(() => {
+    return detectNearestCityAndRegion(providerLiveCoords, citiesTable, regionsTable);
+  }, [providerLiveCoords, citiesTable, regionsTable]);
+
+  // One-click AI auto-sync profile region/city to physical location
+  const autoSyncRegionWithAi = async () => {
+    if (!aiDetectedLocation?.regionId) return null;
+    const profileUpdate = {
+      city_id: aiDetectedLocation.cityId,
+      preferred_region_id: aiDetectedLocation.regionId
+    };
+    await updateUserProfile(profileUpdate);
+    return aiDetectedLocation;
+  };
 
   const currentCustomerJob = useMemo(() => {
     return currentCustomerJobId
@@ -244,7 +353,7 @@ export const MarketplaceProvider = ({ children }) => {
 
   const triggerJobSound = (job) => {
     if (!soundEnabled) return;
-    const isProviderView = viewMode === 'PROVIDER' || viewMode === 'DUAL_SPLIT';
+    const isProviderView = viewMode === 'PROVIDER';
     if (isProviderView && activeProvider) {
       if (shouldNotifyProviderForJob(activeProvider, job, citiesTable)) {
         playSoundEffect('incoming');
@@ -259,10 +368,22 @@ export const MarketplaceProvider = ({ children }) => {
     const fetchSupabaseInitialData = async () => {
       try {
         const { data: regionsData } = await supabase.from('regions').select('*');
-        if (regionsData && regionsData.length > 0) setRegionsTable(regionsData);
+        if (regionsData && regionsData.length > 0) {
+          const mergedRegions = regionsData.map(r => {
+            const initR = INITIAL_REGIONS.find(ir => ir.id === r.id);
+            return { ...r, lat: r.lat || initR?.lat || 32.0853, lng: r.lng || initR?.lng || 34.7818 };
+          });
+          setRegionsTable(mergedRegions);
+        }
 
         const { data: citiesData } = await supabase.from('cities').select('*');
-        if (citiesData && citiesData.length > 0) setCitiesTable(citiesData);
+        if (citiesData && citiesData.length > 0) {
+          const mergedCities = citiesData.map(c => {
+            const initC = INITIAL_CITIES.find(ic => ic.id === c.id || ic.name === c.name);
+            return { ...c, lat: c.lat || initC?.lat || 32.0853, lng: c.lng || initC?.lng || 34.7818 };
+          });
+          setCitiesTable(mergedCities);
+        }
 
         const { data: usersData } = await supabase.from('users').select('*');
         if (usersData && usersData.length > 0) setUsersTable(usersData);
@@ -433,6 +554,40 @@ export const MarketplaceProvider = ({ children }) => {
     };
   }, [soundEnabled]);
 
+  // Background Geocoding Enrichment for all active & incoming jobs
+  useEffect(() => {
+    let isMounted = true;
+    const enrichUnresolvedJobs = async () => {
+      const jobsToGeocode = jobsTable.filter(j => j.location && (!j.lat || !j.lng || !j.isExact));
+      if (jobsToGeocode.length === 0) return;
+
+      for (const job of jobsToGeocode) {
+        try {
+          const geo = await forwardGeocodeAddress(job.location, citiesTable, regionsTable);
+          if (isMounted && geo?.lat && geo?.lng) {
+            setJobsTable(prev => prev.map(existing => {
+              if (existing.job_id === job.job_id || existing.id === job.id) {
+                return {
+                  ...existing,
+                  lat: Number(geo.lat),
+                  lng: Number(geo.lng),
+                  isExact: geo.isExact !== false,
+                  geocodedName: geo.displayName
+                };
+              }
+              return existing;
+            }));
+          }
+        } catch (e) {
+          console.warn('Geocoding job failed for:', job.location, e);
+        }
+      }
+    };
+
+    enrichUnresolvedJobs();
+    return () => { isMounted = false; };
+  }, [jobsTable, citiesTable, regionsTable]);
+
   // SSE Stream listener & Cross-Tab Broadcast listener
   // Both handle the same event types — SSE for cross-device, Broadcast for cross-tab
   const handleSyncEvent = (event) => {
@@ -510,6 +665,12 @@ export const MarketplaceProvider = ({ children }) => {
           return p;
         }));
       }
+    } else if (event.type === 'PROVIDER_AVAILABILITY_CHANGED') {
+      const payload = event.data || event.payload;
+      const { providerId, available } = payload;
+      setProvidersTable(prev => prev.map(p =>
+        p.provider_id === providerId ? { ...p, available } : p
+      ));
     } else if (event.type === 'RESET_DEMO') {
       setJobsTable([]);
       setCurrentCustomerJobId(null);
@@ -604,6 +765,9 @@ export const MarketplaceProvider = ({ children }) => {
       } else if (event.type === 'PROVIDER_APPROVED') {
         const { providerId } = event.payload;
         setProvidersTable(prev => prev.map(p => p.provider_id === providerId ? { ...p, verified: true } : p));
+      } else if (event.type === 'PROVIDER_AVAILABILITY_CHANGED') {
+        const { providerId, available } = event.payload;
+        setProvidersTable(prev => prev.map(p => p.provider_id === providerId ? { ...p, available } : p));
       }
     });
 
@@ -677,7 +841,7 @@ export const MarketplaceProvider = ({ children }) => {
         title: `Licensed ${capitalizedTrade} Specialist`,
         avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
         eta_minutes: 10,
-        distance_miles: '1.2 mi away',
+        distance_miles: '1.2 km away',
         preferred_region_id: userObj.preferred_region_id || null,
         created_at: Date.now()
       };
@@ -723,7 +887,7 @@ export const MarketplaceProvider = ({ children }) => {
 
           for (const host of hosts) {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 1500);
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
             try {
               const res = await fetch(`${host}/api/notify-admin`, {
                 method: 'POST',
@@ -827,6 +991,21 @@ export const MarketplaceProvider = ({ children }) => {
       ? currentUser.user_id
       : generateUUID();
 
+    let jobLat = jobData.lat || null;
+    let jobLng = jobData.lng || null;
+
+    if ((!jobLat || !jobLng) && jobData.location) {
+      try {
+        const geoResult = await forwardGeocodeAddress(jobData.location, citiesTable, regionsTable);
+        if (geoResult?.lat && geoResult?.lng) {
+          jobLat = Number(geoResult.lat);
+          jobLng = Number(geoResult.lng);
+        }
+      } catch (err) {
+        console.warn('Geocoding job location failed:', err);
+      }
+    }
+
     const newJob = {
       job_id: validJobId,
       customer_id: validCustId,
@@ -834,6 +1013,8 @@ export const MarketplaceProvider = ({ children }) => {
       role_id: jobData.category,
       description: jobData.problem,
       location: jobData.location || '742 Evergreen Terrace, Sector 4',
+      lat: jobLat,
+      lng: jobLng,
       phone: jobData.phone || currentUser?.phone || '+1 (555) 789-0123',
       urgency: jobData.urgency || 'MEDIUM',
       estimated_payout: jobData.estimatedPayout || '$120 - $160',
@@ -952,6 +1133,9 @@ export const MarketplaceProvider = ({ children }) => {
       console.error('Supabase claim job error:', e);
     }
 
+    // Set provider availability to busy
+    await updateProviderAvailability(validProviderId, false);
+
     broadcastEvent('JOB_CLAIMED', { jobId: actualJobId, providerId: validProviderId, acceptedAt });
     sseManager.emitSSE('JOB_CLAIMED', { jobId: actualJobId, providerId: validProviderId });
     broadcastToServer('JOB_CLAIMED', { jobId: actualJobId, providerId: validProviderId, acceptedAt });
@@ -989,6 +1173,13 @@ export const MarketplaceProvider = ({ children }) => {
         cancelled_by: 'provider'
       }).eq('job_id', actualJobId);
     } catch (e) {}
+
+    // Set provider availability back to free
+    const targetJob = jobsTable.find(j => j.job_id === actualJobId || j.id === actualJobId);
+    const providerId = targetJob?.provider_id || activeProvider?.id;
+    if (providerId) {
+      await updateProviderAvailability(providerId, true);
+    }
 
     broadcastEvent('PROVIDER_CANCELLED_JOB', { jobId: actualJobId, reason });
     sseManager.emitSSE('PROVIDER_CANCELLED_JOB', { jobId: actualJobId, reason });
@@ -1055,6 +1246,11 @@ export const MarketplaceProvider = ({ children }) => {
       }).eq('job_id', actualJobId);
     } catch (e) {}
 
+    // Set removed provider availability back to free
+    if (removedProviderId) {
+      await updateProviderAvailability(removedProviderId, true);
+    }
+
     broadcastEvent('CUSTOMER_REMOVED_PROVIDER', { jobId: actualJobId, removedProviderId });
     sseManager.emitSSE('CUSTOMER_REMOVED_PROVIDER', { jobId: actualJobId, removedProviderId });
     broadcastToServer('CUSTOMER_REMOVED_PROVIDER', { jobId: actualJobId, removedProviderId });
@@ -1078,6 +1274,13 @@ export const MarketplaceProvider = ({ children }) => {
         completed_at: completedAt
       }).eq('job_id', actualJobId);
     } catch (e) {}
+
+    // Set provider availability back to free
+    const targetJob = jobsTable.find(j => j.job_id === actualJobId || j.id === actualJobId);
+    const providerId = targetJob?.provider_id || activeProvider?.id;
+    if (providerId) {
+      await updateProviderAvailability(providerId, true);
+    }
 
     broadcastEvent('JOB_COMPLETED', { jobId: actualJobId, completedAt });
     sseManager.emitSSE('JOB_COMPLETED', { jobId: actualJobId });
@@ -1152,6 +1355,24 @@ export const MarketplaceProvider = ({ children }) => {
     }
   };
 
+  const updateProviderAvailability = async (providerId, isAvailable) => {
+    setProvidersTable(prev => prev.map(p =>
+      p.provider_id === providerId ? { ...p, available: isAvailable } : p
+    ));
+
+    try {
+      await supabase.from('providers').update({
+        available: isAvailable
+      }).eq('provider_id', providerId);
+    } catch (e) {
+      console.error('Failed to update provider availability in Supabase:', e);
+    }
+
+    broadcastEvent('PROVIDER_AVAILABILITY_CHANGED', { providerId, available: isAvailable });
+    sseManager.emitSSE('PROVIDER_AVAILABILITY_CHANGED', { providerId, available: isAvailable });
+    broadcastToServer('PROVIDER_AVAILABILITY_CHANGED', { providerId, available: isAvailable });
+  };
+
   const resetState = async () => {
     setJobsTable([]);
     setCurrentCustomerJobId(null);
@@ -1220,6 +1441,7 @@ export const MarketplaceProvider = ({ children }) => {
       regions: regionsTable,
       cities: citiesTable,
       updateUserProfile,
+      updateProviderAvailability,
       isAuthenticated,
       handleUserAuthenticate,
       logoutUser,
@@ -1229,7 +1451,15 @@ export const MarketplaceProvider = ({ children }) => {
       pendingProviderTrade,
       adminApproveProvider,
       onlineProsByTrade,
-      fetchLatestUsers
+      fetchLatestUsers,
+      deviceLocation,
+      refreshDeviceLocation,
+      providerLiveCoords,
+      calculateDistanceKm,
+      aiDetectedLocation,
+      autoSyncRegionWithAi,
+      detectNearestCityAndRegion,
+      reverseGeocodeAddress
     }}>
       {children}
     </MarketplaceContext.Provider>

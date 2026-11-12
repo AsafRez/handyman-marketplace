@@ -1,10 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useMarketplace } from '../../context/MarketplaceContext';
-import { X, User, Phone, MapPin, Check } from 'lucide-react';
+import { X, User, Phone, MapPin, Check, Sparkles } from 'lucide-react';
 
 export const ProfileSettingsModal = ({ onClose }) => {
-  const { currentUser, regions, cities, updateUserProfile, providersTable } = useMarketplace();
+  const {
+    currentUser,
+    regions,
+    cities,
+    updateUserProfile,
+    providersTable,
+    aiDetectedLocation,
+    refreshDeviceLocation
+  } = useMarketplace();
 
   const isProvider = currentUser && currentUser.role !== 'customer';
 
@@ -170,6 +178,40 @@ export const ProfileSettingsModal = ({ onClose }) => {
               />
             </div>
           </div>
+
+          {/* AI Auto-Detect Button */}
+          <button
+            type="button"
+            onClick={async () => {
+              const fresh = await refreshDeviceLocation();
+              if (aiDetectedLocation?.regionId && aiDetectedLocation?.cityId) {
+                setSelectedRegionId(aiDetectedLocation.regionId.toString());
+                setSelectedCityId(aiDetectedLocation.cityId.toString());
+                if (isProvider) {
+                  setPreferredRegionId(aiDetectedLocation.regionId.toString());
+                }
+                setSuccessMsg(`✨ AI detected: ${aiDetectedLocation.city?.name}`);
+              }
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              padding: '10px 14px',
+              borderRadius: 'var(--radius-sm)',
+              background: 'linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 100%)',
+              border: '1.5px solid #C7D2FE',
+              color: '#4338CA',
+              fontSize: '0.82rem',
+              fontWeight: 800,
+              cursor: 'pointer',
+              boxShadow: '0 2px 6px rgba(99, 102, 241, 0.15)'
+            }}
+          >
+            <Sparkles size={15} />
+            <span>✨ AI Auto-Detect My Region & City</span>
+          </button>
 
           {/* User Region */}
           <div>

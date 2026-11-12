@@ -31,3 +31,7 @@ dist-ssr
 # APK files
 *.apk
 
+# Temporary screenshots / emulator
+emulator_screen.png
+
+

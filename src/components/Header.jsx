@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useMarketplace } from '../context/MarketplaceContext';
-import { Wrench, User, LogIn, LogOut, Volume2, VolumeX, RotateCcw, Sparkles, Activity, ShieldAlert, CheckCircle2, Settings, Database as DatabaseIcon } from 'lucide-react';
+import { Wrench, User, LogIn, LogOut, Volume2, VolumeX, Sparkles, Activity, ShieldAlert, CheckCircle2, Settings, Database as DatabaseIcon } from 'lucide-react';
 import { ProfileSettingsModal } from './Auth/ProfileSettingsModal';
 import { DatabaseInspectorModal } from './Database/DatabaseInspectorModal';
 
@@ -11,7 +11,6 @@ export const Header = () => {
     logoutUser,
     providersTable,
     adminApproveProvider,
-    resetState,
     soundEnabled,
     setSoundEnabled
   } = useMarketplace();
@@ -179,28 +178,6 @@ export const Header = () => {
           >
             <DatabaseIcon size={14} />
             <span>Inspector</span>
-          </button>
-
-          {/* Reset State Button */}
-          <button
-            onClick={resetState}
-            title="Clear all job requests"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: '6px 10px',
-              borderRadius: '10px',
-              background: '#F8FAFC',
-              color: 'var(--text-muted)',
-              fontSize: '0.75rem',
-              fontWeight: 600,
-              border: '1px solid #E2E8F0',
-              cursor: 'pointer'
-            }}
-          >
-            <RotateCcw size={14} />
-            <span>Reset Jobs</span>
           </button>
         </div>
       </div>

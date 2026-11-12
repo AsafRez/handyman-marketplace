@@ -5,10 +5,10 @@ import { CategoryPicker } from './components/Customer/CategoryPicker';
 import { JobRequestModal } from './components/Customer/JobRequestModal';
 import { JobStatusTracker } from './components/Customer/JobStatusTracker';
 import { ProviderDashboard } from './components/Provider/ProviderDashboard';
-import { SplitViewSimulator } from './components/DualView/SplitViewSimulator';
-import { MobileBottomBar } from './components/Mobile/MobileBottomBar';
+
 import { StartupLoginPage } from './components/Auth/StartupLoginPage';
 import { ProviderPendingModal } from './components/Auth/ProviderPendingModal';
+import { RoleSwitcherBar } from './components/Navigation/RoleSwitcherBar';
 
 export function AppContent() {
   const {
@@ -21,12 +21,21 @@ export function AppContent() {
     handleUserAuthenticate,
     showPendingModal,
     setShowPendingModal,
+    currentUser,
+    providersTable,
     pendingProviderUser,
     pendingProviderTrade,
     adminApproveProvider
   } = useMarketplace();
 
   const [selectedCategory, setSelectedCategory] = React.useState(null);
+
+  const isVerifiedProvider = currentUser
+    ? providersTable.some(p =>
+        (p.user_id === currentUser.user_id || p.user_id?.toLowerCase() === currentUser.user_id?.toLowerCase()) &&
+        p.verified === true
+      )
+    : false;
 
   // Mandatory Full-Screen Startup Login Page if not authenticated
   if (!isAuthenticated) {
@@ -39,7 +48,7 @@ export function AppContent() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-app)', color: 'var(--text-main)', paddingBottom: '5rem' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--bg-app)', color: 'var(--text-main)', paddingBottom: isVerifiedProvider ? '4.5rem' : '1.5rem' }}>
 
 
       {/* Main Header */}
@@ -78,15 +87,10 @@ export function AppContent() {
         {viewMode === 'PROVIDER' && (
           <ProviderDashboard />
         )}
-
-        {/* MODE 3: DUAL SPLIT-SCREEN SIMULATOR */}
-        {viewMode === 'DUAL_SPLIT' && (
-          <SplitViewSimulator />
-        )}
       </main>
 
-      {/* Touch Mobile Bottom Bar */}
-      <MobileBottomBar />
+      {/* Role Switcher Bar (ONLY visible to verified providers) */}
+      <RoleSwitcherBar />
 
       {/* Provider Verification Pending Modal */}
       {showPendingModal && (
